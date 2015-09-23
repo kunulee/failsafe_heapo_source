@@ -1,0 +1,1 @@
+cmd_arch/arm/boot/uImage := /bin/bash /home/kunulee/HEAPO/HEAPO_REDO_ARM_3.15/linux-xlnx/scripts/mkuboot.sh -A arm -O linux -C none  -T kernel -a 0x8000 -e 0x8000 -n 'Linux-3.15.0-xilinx' -d arch/arm/boot/zImage arch/arm/boot/uImage
