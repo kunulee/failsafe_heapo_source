@@ -21,6 +21,8 @@ struct pos_name_entry {
 	void *log_addr;	// Start address of object storage for log
 	struct seg_info *seg_head; // Head of Prime Segment info
 	struct pos_name_entry *next;
+	/* Keonwoo Debug */
+	unsigned short global_count ; 
 };
 
 struct seg_info {

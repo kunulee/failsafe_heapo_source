@@ -716,7 +716,7 @@ int pos_list_insert(char *name, void *_key, void *_val, unsigned long val_size)
 #endif
 //	memcpy(node->value, val, val_size);
 	node->value = val ;
-	PR_DEBUG("node->value : %p\n" , node->value) ; 
+	PR_DEBUG("node->value : %p[%d]\n" , node->value,*(int*)node->value) ; 
 #if CONSISTENCY == 1
 	pos_clflush_cache_range(node->value, val_size);
 #endif

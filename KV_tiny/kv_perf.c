@@ -32,7 +32,7 @@
 	#define DEBUG_PRINT(...) printf(__VA_ARGS__) ;
 #endif // macro end
 
-
+int threads_num = 0 ;
 int per_thread_count = 0 ; 	
 char *obj_store = NULL ; 
 static int static_key[3100000] = {0} ; 	
@@ -60,6 +60,8 @@ void print_time( struct timeval T1, struct timeval T2){
 
         printf("[TIME] :%8ld sec %06ldus.\n",sec,usec);
 	/* later we calculate ops */
+	
+	printf("[TPS] : %f\n" ,TOTAL_COUNT/time);
 }
 void help(){ 
 	printf("[1] stm list insert\n") ; 
@@ -126,7 +128,7 @@ int main(int argc, char *argv[])
 	struct timeval T1,T2 ; 	
 	int i = 0 ;	
 	pthread_t *threads = NULL ; 	
-	int threads_num = 0 ; 	
+	threads_num = 0 ; 	
 	char *store_name = NULL ; 	
 	int mode = 0 ; 
 	if( argc != 4 ){ 

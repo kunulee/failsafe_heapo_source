@@ -135,6 +135,7 @@ int stm_pos_insert_global_count( char *name ){
 	
 	PR_DEBUG("[%s][pos_malloc]_[%p][%d]_insert complete\n",	
 			__func__ , pa , *pa) ; 	
+	
 	return 0 ; 
 
 }  

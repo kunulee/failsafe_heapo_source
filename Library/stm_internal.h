@@ -295,7 +295,10 @@ typedef struct w_entry {                /* Write set entry */
 #if HEAP_TINY_FLAGS == 1 
       #if HEAP_TINY_COMMIT_FLAGS == 1 
       char commit_mark ; 		/* for atomic unit */
-      #endif
+      #endif 
+      #if HEAP_TINY_CHECKSUM_FLAGS == 1 	
+      unsigned short checksum_mark ; 
+      #endif 
       #if HEAP_TINY_SEQ_FLAGS == 1
       unsigned short seq_num ;		/* 2byte(~65535) */
       #endif 
@@ -1168,22 +1171,50 @@ static int cf_cnt = 0 ;
 //	write_dccmvac(__p) ;
 //	asm volatile("clflush %0" : "+m" (*(volatile char *)__p)); 
 //} 
+/* calculate write entry checksum */
+void calc_write_entry_checksum( w_entry_t *w ){ 
+#if HEAP_TINY_CHECKSUM_FLAGS == 1
+	register unsigned short *cksum = (unsigned short *)w; 	
+	register unsigned short sum = 0 ; /* calculate checksum */ 
+	unsigned short before_val = 0 ; 	
+	int i , j = 0 ; 
+	int size = sizeof(w_entry_t)/sizeof(unsigned short) ; 	
+	/* must except write entry's checksum field */ 	
+	cksum++ ; 	
+	for( i = 0 ; i < 4 ; i++ ){
+		sum+=*cksum++ ; 	
+	}
+	before_val = sum ; 	
+//	sum = ( sum >> 16 ) + (sum & 0xffff) ; 	
+//	sum += (sum >> 16 ) ; 
+	sum = ~sum + 1; //2's compliment(  ~sum + 1 ) ; 	
+//	CHECKSUM_PRINT("[%s][checksum=%p]\n",__func__, sum) ; 	
+//	CHECKSUM_PRINT("[%s][before=%p]\n" , __func__ ,before_val) ;
+	w->checksum_mark = sum ; 	
+
+	sum = sum + before_val ; 	
+//	CHECKSUM_PRINT("[%s][valid[%p]\n", __func__, sum) ;	
+#endif
+} 
 void cache_flush_write_entry( w_entry_t *w, unsigned int size){ 
+#if HEAP_TINY_CHECKSUM_FLAGS == 1 
+	/* if checksum flag is set, calculate checksum bit and embedd into write entry*/
+	calc_write_entry_checksum( w ) ; 	
+	CHECKSUM_PRINT("[after]w->checksum_mark[%p]\n" , w->checksum_mark);
+#endif 
 	pos_clflush_cache_range( w,size ); 	
 	/* for consistency commit mark mechanism operate */ 
 	w_entry_t *tmp =w ;
+#if HEAP_TINY_COMMIT_FLAGS == 1 
 	tmp->commit_mark = 1;
+	/* clflush for consistency write entry */ 
+	COMMIT_PRINT("[after]w->commit_mark[%d]\n",w->commit_mark) ; 		
 	pos_clflush_cache_range( &w->commit_mark , 4 ) ; 	
-
-//	clflush(&w->commit_mark);
-	cf_cnt++; 
-	#if KEONWOO_DEBUG == 1 		
-	PR_DEBUG("[%d][%p] comm flush cnt : %d,seq_num[%d]\n",tmp->commit_mark,
-			&tmp->commit_mark,cf_cnt,tmp->seq_num) ; 	
-	
-	//sleep(3);
-	#endif 
-
+#endif
+//	cf_cnt++; 
+//	#if KEONWOO_DEBUG == 1 		
+//	PR_DEBUG("[%d][%p] comm flush cnt : %d,seq_num[%d]\n",tmp->commit_mark,
+//			&tmp->commit_mark,cf_cnt,tmp->seq_num) ; 	
 //	tiny_mb() ; 	
 }
 #endif  
@@ -1214,6 +1245,12 @@ stm_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_word_t 
 #elif DESIGN == WRITE_BACK_CTL
   w = stm_wbctl_write(tx, addr, value, mask);
 #elif DESIGN == WRITE_THROUGH
+  #if HEAP_TINY_DELAYED_CACHE_FLUSH_FLAGS == 1 
+  /* if store policy is write_through and delayed cache flush, 
+	we have to return this execution because through policy do not allowed dcf */
+  printf("[Delayed Cache Flush & Write Through Policy do not used simultaneously]\n") ;
+  exit(0);
+  #endif 
   w = stm_wt_write(tx, addr, value, mask);
 #elif DESIGN == MODULAR
   if (tx->attr.id == WRITE_BACK_CTL)
@@ -1223,6 +1260,12 @@ stm_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_word_t 
   else
     w = stm_wbetl_write(tx, addr, value, mask);
 #endif /* DESIGN == WRITE_THROUGH */
+
+/* if delayed cache flush flag is set 0, call clflush per operation */ 
+#if HEAP_TINY_DELAYED_CACHE_FLUSH_FLAGS == 0
+  cache_flush_write_entry(w, sizeof(w)) ; 
+#endif 
+
 
 //#if HEAP_TINY_FLAGS == 1 
 //  cache_flush_write_entry( w , sizeof(w)) ; 	
@@ -1867,97 +1910,106 @@ overflow_recovery(char *name, stm_tx_t *tx){
 
 	return ;	
 } 
+int get_checksum(w_entry_t *w){ /* check validation about write entry's checksum flags */
+#if HEAP_TINY_CHECKSUM_FLAGS == 1 
+	register unsigned short *cksum = (unsigned short *)w ; 	
+	register unsigned short sum = 0 ; 	
+	unsigned short before_val = w->checksum_mark ; 	
+	int  i , j = 0 ; 	
+	int validation = -99; 	
+	int size = sizeof(w_entry_t)/sizeof(unsigned short) ; 	
+	cksum++ ; 	
+	for( i = 0 ; i < 4 ; i++){ 
+		sum+=*cksum++ ; 	
+	} 
+	sum = sum + before_val ; 
+	CHECKSUM_PRINT("w->checksum_mark[%p]\n" , w->checksum_mark);
+	if( sum == 0 ){ 
+		printf("[%s]validation success\n",__func__) ; 	
+		validation = 0 ; 	
+	}else{ 
+		printf("[%s]validation failed\n",__func__ ); 	
+		validation = -1; 	
+	}
+	return validation ; 	
+#endif 
+
+} 
 void
 normal_recovery(char *name,struct list_head *head){ 
 	/* max -> min , for DS transaction consistency */
-//	PR_DEBUG("[NORMAL RECOVERY]\n") ; 
-
-	/* log_name is log object storage name */ 
 	char log_name[128] = {0} ; 	
-	strcpy( log_name , name ) ; 	
-	strcat( log_name , NAME_TM) ;
+	strcpy( log_name , name) ; 	
+	strcat( log_name , NAME_TM) ; 	
+	int i , j = 0 ; 	
+#if DESIGN == WRITE_BACK_ETL 
+	printf("\n[WRITE_BACK RECOVERY]\n" , name) ; 	
 
-	printf("\n\n[NORMAL RECOVERY][%s]\n", name) ; 	
-	
-	int i,j = 0 ; 	
-	struct list_node *node ; 
-	stm_tx_t *head_tx ;
-	w_entry_t *w ; 
-	/* traverse max_num to min_num and rollback */ 
+	sleep(100) ;
+	/* Not Implement Yet.. -_- */
+#elif DESIGN == WRITE_THROUGH
+	printf("\n[WRITE_THROUGH RECOVERY\n", name) ; 	
+	struct list_node *node ; 	
+	stm_tx_t *head_tx;
+	w_entry_t *w; 	
 	for( i = max_num ; i >= min_num ; i-- ){ 
-		/* initialize */ 
-		printf("[%s][num:%d]\n",__func__,i); 
-		node = head->head ; 	
+		printf("[%s][num:%d]\n",__func__ , i);
+		node=head->head;
 		head_tx = node->value ; 	
-		w = head_tx->w_set.entries ; 
-		
-		while( node != NULL ){ 
-			for( j = head_tx->w_set.nb_entries ; j > 0 ; j--,w++ ){
-					PR_DEBUG("[%s][%p][%p]\n",
-						__func__, w->addr,w->value) ; 	
-				if( w->seq_num == i && w->commit_mark == 1 ){ /* find number */ 
-					printf("[%s][find_number[%p][%p]\n",
-						__func__, w->addr,w->value) ; 	
-					ATOMIC_STORE(w->addr,w->value) ; 	
-				}
-			}				
-			/* move to next pointer */ 
-			node = node->next ; 	
-			if( node == NULL ) continue ; 	
-			head_tx = (stm_tx_t *)node->value ; 	
-			w = head_tx->w_set.entries ; 	
-		}
-		
-	}
-		
-
-	PR_DEBUG("Press any key to start\n") ;
-	getc(stdin) ; 	
-	/* initialize variable and remove entry list, */ 
-	stm_tx_t *tmp ; 	
-	node = head->head ; 
-	head_tx = node->value ; 	
-	w = head_tx->w_set.entries; 	
-	while( node != NULL ){ 
-		printf("[%s][tx = %p]\n", log_name , head_tx ) ; 	
-	
-		pos_list_remove( log_name , &head_tx->thread_id) ;
-		tls_set_tx(head_tx); /* delete local thread descriptor */
-		
-
-		node = node->next ; 	
-		if(node == NULL) continue ; 	
-		head_tx = (stm_tx_t *)node->value ; 	
 		w = head_tx->w_set.entries; 	
-	} 
-
-//	PR_DEBUG("head->head[%p][%p]\n" , head->head, node ) ; 		
-//	PR_DEBUG("node->key[%p] \n" , *node->key) ;
-//	node = node->next ; 	
-//	PR_DEBUG("head->head[%p][%p]\n" , head->head, node ) ; 		
-//	PR_DEBUG("node->key[%p] \n" , node->key) ;
-	  
- 
-//	head_tx = node->value ; 	
-//	while( node != NULL ){ 
-//		PR_DEBUG("[%s][remove head:%p]\n", __func__, head_tx) ; 	
-//		pos_free(name , head_tx->r_set.entries) ; /*free read set */ 	
-//		pos_free(name , head_tx->w_set.entries) ; /*free write set */ 
-//		pos_free(name , head_tx ) ; 	
-//		/* then remain list_node */ 
-//		node = node->next ; 
-//		if( node == NULL) continue ; 	
-//		head_tx = (stm_tx_t *)node->value ; 	
-//	}
-//	pos_list_remove_all( name , head ) ; 	
-
-
+		while( node != NULL ){ 
+			for( j = head_tx->w_set.nb_entries ; j > 0 ; j-- , w++ ){
+				//printf("[%s][%p][%p]\n", __func__,
+				//	w->addr , w->value) ; 			
+				#if HEAP_TINY_COMMIT_FLAGS == 1
+				if( w->seq_num == i && w->commit_mark == 1 ){
+					printf("[%s][find_number[%p][%p]\n", 
+						__func__, w->addr,w->value) ; 	
+					ATOMIC_STORE(w->addr , w->value) ; 	
+				}
+				#endif 
+				#if HEAP_TINY_CHECKSUM_FLAGS == 1 
+				if( w->seq_num == i ){ 
+					if( get_checksum(w) == 0 ){ 
+						printf("[%s][find_number[%p][%p]\n" , 	
+							__func__, w->addr, w->value );
+						ATOMIC_STORE(w->addr, w->value) ;
+					}
+				}
+				#endif 		
+				
+			}
+			node = node->next ; 
+			if( node == NULL ){
+				 continue ; 	
+			}
+			head_tx = (stm_tx_t *)node->value ; 
+			w = head_tx->w_set.entries; 
+		}
+	}		
+	printf("Complete find all node refer to max-min number\n") ; 	
+	printf("Press Any Key for Recovery\n") ; 	
+	getc(stdin); 	
+	stm_tx_t *tmp; 
+	node = head->head ; 	
+	head_tx = node->value ; 	
+	w = head_tx->w_set.entries; 
+	while( node != NULL ){ 
+		printf("[%s][tx=%p]\n", log_name , head_tx ); 
+		pos_list_remove(log_name , &head_tx->thread_id ) ; 	
+		tls_set_tx(head_tx) ; 	
+	
+		/* move tiny's structure */ 
+		node = node->next ; 	
+		if( node == NULL ) continue ; 	
+		head_tx = (stm_tx_t *)node->value ; 	
+		w = head_tx->w_set.entries;  	
+	}	
+#endif
 
 	/* initialize min,max number */ 	
 	min_num = 0 ; 	
 	max_num = 0 ;
-	//sleep(1) ;
-
 	return ; 	
 }
 void

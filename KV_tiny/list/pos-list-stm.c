@@ -114,10 +114,10 @@ int stm_pos_list_open(char *name){
 	}
 //	#endif 
 	/* insert global count per obj storage */
-	ret_val = stm_pos_insert_global_count(name) ; 	
-	if(ret_val == -1){ 
-		return -1; 	
-	}
+//	ret_val = stm_pos_insert_global_count(name) ; 	
+//	if(ret_val == -1){ 
+//		return -1; 	
+//	}
 	return 0 ; 
 } 
 int stm_pos_list_close(char *name){

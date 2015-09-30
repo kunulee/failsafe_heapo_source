@@ -687,6 +687,14 @@ void get_clflush_count(){
 	printf("%d\n" , clflush_count) ;
 }
 void pos_clflush_cache_array(void **arr , int flush_cnt){ 
+	/* only for x86 clflush */ 
+	void *end ; 	
+	int i = 0 ; 	
+	mb() ; 	
+	for( i = 0 ; i < flush_cnt; i++){ 
+		clflush(arr[i]) ; 	
+	}
+	mb() ; 	
 	return ; 
 }  
 void pos_clflush_cache_range(void *vaddr, unsigned int size)
@@ -696,9 +704,6 @@ void pos_clflush_cache_range(void *vaddr, unsigned int size)
 //	clflush_count++ ; 	
 ///	a_unlock() ; 	
 //	printf("[%d]-clflush_count\n", 	clflush_count) ; 	
-	
-
-
 	void *vend = vaddr + size - 1;
 
 	mb();

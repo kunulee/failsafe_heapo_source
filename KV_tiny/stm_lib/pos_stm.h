@@ -38,7 +38,7 @@
 
 /* print flags */ 
 #ifndef KEONWOO_PRINT
-#define KEONWOO_PRINT 1 
+#define KEONWOO_PRINT 0 
 #endif 
 #if KEONWOO_PRINT == 1 	
 	#define PR_DEBUG(...)	printf(__VA_ARGS__);	
